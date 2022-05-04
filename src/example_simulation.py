@@ -1,33 +1,15 @@
-from Battleground import Battleground
-from Actors.ComaActor import ComaAI
-from Monsters import JawWorm
+import Classes.Ironclad
+from BattleSimulation import BattleSimulation
+from Actors.RandomActor import RandomActor
+from Monsters import Cultist
 
-"""
-cards = [  # Starting card deck
-    "Strike", "Strike", "Strike", "Strike", "Strike",
-    "Defend", "Defend", "Defend", "Defend",
-    "Bash"
-]
+sim = BattleSimulation(
+    actor=RandomActor,  # The AI that will be deciding actions
+    actor_health=Classes.Ironclad.starting_health,  # Player/AI Starting health
+    actor_deck=Classes.Ironclad.starting_deck,      # Player/AI Starting deck
+    monsters=[Cultist],   # Enemies to play against
+    ascension=1           # Ascension level this will take place at
+)
 
-bg = Battleground(ascension=0)  # Create a battleground at ascension 0
-bg.add_actor(ComaAI(cards, 72))  # Add a CLI actor
-bg.add_monster(JawWorm())  # Add a sentry with 42 health
-
-print("====== Battle Start ======")
-while not bg.battle_over():
-    bg.next_round()
-"""
-
-
-def fizz():
-    print("fizz")
-
-
-def buss():
-    print("buzz")
-
-
-li = [("%100", 1), ("%5", -1), ("%10", -5), ("%2", 10)]
-li.sort(key=lambda x: int(x[0].replace("%", "")))
-
-print(li)
+# Simulate one battle
+sim.simulate(1, verbose=True)
