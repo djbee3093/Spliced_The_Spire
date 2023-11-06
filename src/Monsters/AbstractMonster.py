@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from src.Effects import Strength, Ritual
 
 from random import randint
+from functools import partial
 
 
 # Calculates health by ascension
@@ -48,7 +49,7 @@ class AbstractMonster(ABC):
         # Assign the health
         if type(max_health) is dict:
             # If a dict was provided calculate health based on that
-            self.max_health = calculateHealth(max_health, ascension)
+            self.max_health = self._ascensionBasedRandomValue(max_health)
 
         else:
             # Otherwise, just use the provided value
@@ -60,7 +61,7 @@ class AbstractMonster(ABC):
         }
 
         # Since this monster was just created, set current health to max
-        self.current_health = max_health
+        self.current_health = self.max_health
         self.turn = 0
         self.block = 0
         self.strength = Strength(self, 0)
@@ -70,9 +71,35 @@ class AbstractMonster(ABC):
         self.actor = None
         self.actionHistory = []
 
+        # Call the onStart method for any monsters that have buffs at the start
+        self.onStart()
+
+    def onStart(self):
+        """ Will be called on Monster creation.
+        You can override this in a subclass if you have something
+        you want to happen at the start of the fight.
+        :return: None
+        """
+        pass
+
+    def getIntent(self):
+        return "attack for 4 damage"
+
     def deal_damage(self, damage):
         adjustedDamage = self.strength.modifyDamageDealt(damage)
         self.getPlayer().takeDamage(adjustedDamage)
+
+    def useAction(self, ability):
+        """ API for having a monster use an ability.
+        By calling this method the super-class will automatically handle things like:
+        - Incrementing turn
+        - Returning the correct method
+        :param ability: The ability you want to use
+        :return: The ability used
+        """
+
+        self.turn += 1  # Increment turn
+        return ability()  # Use the ability and return it's type
 
     def take_damage(self, dmg):
         self.current_health -= dmg
@@ -88,6 +115,9 @@ class AbstractMonster(ABC):
 
     def gainStrength(self, strength):
         self.strength.strength += strength
+
+    def addEffect(self, effect):
+        self.effects[effect.name] = effect
 
     def modifyEffect(self, effect, quantity):
         """ Used to modify (+/-) the quantity of an effect
@@ -119,16 +149,17 @@ class AbstractMonster(ABC):
                 continue  # This was an empty conditional, so skip it
 
             # Get the history for x number of turns
-            history = self.actionHistory[-times.replace("X", ""):]
+
+            history = self.actionHistory[-int(times.replace("X", "")):]
 
             # If we did this method last turn AND we've done the same method for each of the last turn
-            if history[-1] == method and len(set(history)) <= 1:
+            if len(history) > 1 and history[-1] == method and len(set(history)) <= 1:
                 # Reduce the total probability because we will not be allowing this to occur
                 totalProbability -= percent.replace("%", "")
                 bannedMethods.append(method)
 
         # Sort the keys based on likelihood (lowest first)
-        probabilities.sort(key=lambda x: int(x[0].replace("", "")))
+        probabilities.sort(key=lambda x: int(x[0].replace("%", "")))
 
         # Start with probability 0
         prob = 0
@@ -142,7 +173,7 @@ class AbstractMonster(ABC):
             if roll <= prob:
                 return actionMap[probability]
 
-    raise Exception
+        raise Exception
 
     def ascensionBasedAction(self, actionDict):
 
@@ -155,16 +186,52 @@ class AbstractMonster(ABC):
             raise Exception
 
         # starting from the second ascension, and increasing
-        for i in range(0, len(ascensionBounds)):
+        for i in range(0, len(ascensionBounds) - 1):
 
             # Check if this ascension is lower than the next ascension
-            if self.ascension <= ascensionBounds[i]:
+            if self.ascension < ascensionBounds[i + 1]:
                 # If so, generate and return health based on the previous range
                 return actionDict[ascensionBounds[i]]
 
         # If it's not lower than the highest bound, then we know to use the last range
         return actionDict[ascensionBounds[-1]]
 
-    @abstractmethod
-    def take_turn(self):
+    def _ascensionBasedRandomValue(self, valueDict):
+        """
+        Use this to get a random value based on ascension
+        Returns a random value in a range based on ascension
+        :param valueDict: {1: (5, 10)} -> For ascension 1+ random(5, 10)
+        :return: A random number in the provided range based on the ascension of this monster
+        """
+        # Create a lambda function and insert it in to a generator map for each trny
+        generatorDict = dict()
+        for key in valueDict:
+            low, high = valueDict[key]
+            generatorDict[key] = partial(randint, low, high)
+
+        # Get an ascension based action
+        generator = self.ascensionBasedAction(generatorDict)
+
+        # Return the results of the generator
+        return generator()
+
+    def ascensionBasedValue(self, valueDict):
         pass
+
+    @abstractmethod
+    def take_turn(self, verbose):
+        pass
+
+    # < - - - - - Helper Methods - - - - - > #
+
+    def dealDamage(self, rawDamage):
+        # The amount of damage based on our effects, powers, and relics
+        modifiedDamage = rawDamage
+
+        # The actual damage done after accounting for player effects, powers and relics
+        actualDamage = self.getPlayer().takeDamage(modifiedDamage)
+
+        # Return the actual damage
+        return actualDamage
+
+

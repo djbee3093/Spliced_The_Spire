@@ -1,27 +1,28 @@
 from src.Monsters.AbstractMonster import AbstractMonster
-from src.Utility.HomeUtility import RandomChance
-from random import randint
+from src.Effects import Strength, Block
+from functools import partial
 
 
 class JawWorm(AbstractMonster):
-    def __init__(self, health=None, ascension=0):
+    def __init__(self, ascension=1, act=1):
         AbstractMonster.__init__(self,
                                  name="Jaw Worm",
-                                 max_health=health,
+                                 max_health={
+                                     1: (40, 44),  # A1- Health is 40-44
+                                     7: (42, 46)  # A7+ Health is 42-46
+                                 },
                                  ascension=ascension,
-                                 act=1
+                                 act=act
                                  )
 
-        # no specific health
-        if health is None:
-            if self.ascension < 7:
-                self.max_health = randint(40, 44)
-            else:
-                self.max_health = randint(42, 46)
+    def onStart(self):
+        #  Add strength and block
+        self.addEffect(Block(self, 0))
+        self.addEffect(Strength(self, 0))
 
-        # special for act 3
+        # If this is Act 3 we start with a bellow
         if self.act == 3:
-            self.bellow()
+            self._bellow()
 
     def take_turn(self):
         """ Defines how the monster takes its
@@ -37,62 +38,24 @@ class JawWorm(AbstractMonster):
             -> Cannot Chomp 2x in a row
 
         If in Act 3:
-
+            Start with buffs from bellow, and no guarantee for chomp first turn
 
         """
+        # If it's our first turn, and we're in act one, we chomp
+        if self.turn == 0 and self.act == 1:
+            return self.useAction(self._chomp)
 
-        # T1: starting move is always the same unless in act 3
-        if self.act is not 3 and self.turn is 1:
-            self.chomp()
-            return
+        # Otherwise, we follow this logic
+        ability = self.conditionalChanceBasedAction({
+            ("45%", "2X"): partial(self._bellow),
+            ("30%", "3X"): partial(self._thrash),
+            ("25%", "2X"): partial(self._chomp)
+        })
 
-        monsterHasFinished = False
+        # Then use the super-class API to use it, returning the results
+        return self.useAction(ability)
 
-        # keep looping until monster has completed an action
-        while not monsterHasFinished:
-
-            actionChoice = RandomChance(30, 45, 25)
-
-            # 45% change
-            if actionChoice.chance(45):
-
-                # can not use bellow twice in a row
-                if len(self.actionHistory) > 0 and self.actionHistory[-1] == "bellow":
-                    continue
-
-                self.bellow()
-                self.actionHistory.append("bellow")
-
-                # monster is done with turn
-                monsterHasFinished = True
-
-            # 30% chance
-            elif actionChoice.chance(30):
-
-                # Can not thrash three times in a row
-                if len(self.actionHistory) > 0 and self.actionHistory[-2] == self.actionHistory[-1] == "thrash":
-                    continue
-
-                self.thrash()
-                self.actionHistory.append("thrash")
-
-                # monster is done with turn
-                monsterHasFinished = True
-
-            # 25% chance
-            elif actionChoice.chance(25):
-
-                # cannot use chomp twice in a row
-                if len(self.actionHistory) > 0 and self.actionHistory[-1] == "chomp":
-                    continue
-
-                self.chomp()
-                self.actionHistory.append("chomp")
-
-                # monster is done with turn
-                monsterHasFinished = True
-
-    def chomp(self):
+    def _chomp(self):
         """ Attack player
 
         Specification:
@@ -100,18 +63,15 @@ class JawWorm(AbstractMonster):
         Else: Does 12 Damage
         """
 
-        if self.ascension < 2:
+        ability = self.ascensionBasedAction({
+            1: partial(self.getPlayer().takeDamage, 11),
+            2: partial(self.getPlayer().takeDamage, 12)
+        })
 
-            # deals 11 damage to player
-            self.getPlayer().takeDamage(11)
+        ability()  # Use ability
+        return self._chomp  # And return
 
-        # A2 +
-        else:
-
-            # deals 12 damage to player
-            self.getPlayer().takeDamage(12)
-
-    def thrash(self):
+    def _thrash(self):
         """ Attacks player and gains block
 
         Specification:
@@ -124,26 +84,30 @@ class JawWorm(AbstractMonster):
         # this monster gains 5 block
         self.gainBlock(5)
 
-    def bellow(self):
-        """ Monster gains strength and block
+        return self._thrash
+
+    def _bellow(self):
+        """ Monster gains strength and block.
 
         Specifications:
-        <A2: Gain 4 strength, 6 block
-        <A17: Gain 4 Stength, 6 block
-        else: Gain 5 strength, 9 block
+        <A1> +3 Strength, +6 Block
+        <A2> +4 Strength, +6 block
+        <A17> +5 Strength, +9 block
 
         """
 
-        if self.ascension < 2:
-            self.gainStrength(3)
-            self.gainBlock(6)
+        strengthAction = self.ascensionBasedAction({
+            +1: partial(self.modifyEffect, "Strength", 3),
+            +2: partial(self.modifyEffect, "Strength", 4),
+            17: partial(self.modifyEffect, "Strength", 5)
+        })
 
-        # A2 +
-        elif self.ascension < 17:
-            self.gainStrength(4)
-            self.gainBlock(6)
+        blockAction = self.ascensionBasedAction({
+            +1: partial(self.modifyEffect, "Block", 6),
+            17: partial(self.modifyEffect, "Block", 9)
+        })
 
-        # A17 +
-        else:
-            self.gainStrength(5)
-            self.gainBlock(9)
+        # Actually use the abilities and return
+        strengthAction()
+        blockAction()
+        return self._bellow
